@@ -15,7 +15,7 @@ var (
 )
 
 const (
-	provideOutgoingWorkerLimit = 512
+	provideOutgoingWorkerLimit = 1
 	provideOutgoingTimeout     = time.Second * 15
 )
 
@@ -85,11 +85,6 @@ func (p *Provider) Announce(cid cid.Cid) {
 
 // Workers
 
-// Handle incoming requests to provide blocks
-//
-// Basically, buffer everything that comes through the incoming channel.
-// Then, whenever the outgoing channel is ready to receive a value, pull
-// a value out of the buffer and put it onto the outgoing channel.
 func (p *Provider) handleIncoming() {
 	for {
 		select {
@@ -121,7 +116,7 @@ func (p *Provider) handleOutgoing() {
 	}
 }
 
-// Move CIDs from the disk-based queue to outgoing
+// Move CIDs from the providing queue to outgoing
 func (p *Provider) handlePopulateOutgoing() {
 	for {
 		select {
