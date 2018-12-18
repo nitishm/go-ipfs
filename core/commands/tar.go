@@ -6,7 +6,6 @@ import (
 
 	core "github.com/ipfs/go-ipfs/core"
 	cmdenv "github.com/ipfs/go-ipfs/core/commands/cmdenv"
-	coreiface "github.com/ipfs/go-ipfs/core/coreapi/interface"
 	tar "github.com/ipfs/go-ipfs/tar"
 
 	cmds "gx/ipfs/QmPdvMtgpnMuU68mWhGtzCxnddXJoV96tT9aPcNbQsqPaM/go-ipfs-cmds"
@@ -57,14 +56,14 @@ represent it.
 		c := node.Cid()
 
 		fi.FileName()
-		return cmds.EmitOnce(res, &coreiface.AddEvent{
+		return cmds.EmitOnce(res, &AddEvent{
 			Name: fi.FileName(),
 			Hash: c.String(),
 		})
 	},
-	Type: coreiface.AddEvent{},
+	Type: AddEvent{},
 	Encoders: cmds.EncoderMap{
-		cmds.Text: cmds.MakeTypedEncoder(func(req *cmds.Request, w io.Writer, out *coreiface.AddEvent) error {
+		cmds.Text: cmds.MakeTypedEncoder(func(req *cmds.Request, w io.Writer, out *AddEvent) error {
 			fmt.Fprintln(w, out.Hash)
 			return nil
 		}),

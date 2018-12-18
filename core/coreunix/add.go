@@ -41,12 +41,6 @@ type Link struct {
 	Size       uint64
 }
 
-type Object struct {
-	Hash  string
-	Links []Link
-	Size  string
-}
-
 // NewAdder Returns a new Adder used for a file add operation.
 func NewAdder(ctx context.Context, p pin.Pinner, bs bstore.GCBlockstore, ds ipld.DAGService) (*Adder, error) {
 	bufferedDS := ipld.NewBufferedDAG(ctx, ds)
@@ -582,7 +576,7 @@ func outputDagnode(out chan<- interface{}, name string, dn ipld.Node) error {
 	}
 
 	out <- &coreiface.AddEvent{
-		Hash: o.Hash,
+		Path: o.Path,
 		Name: name,
 		Size: o.Size,
 	}
@@ -591,24 +585,16 @@ func outputDagnode(out chan<- interface{}, name string, dn ipld.Node) error {
 }
 
 // from core/commands/object.go
-func getOutput(dagnode ipld.Node) (*Object, error) {
+func getOutput(dagnode ipld.Node) (*coreiface.AddEvent, error) {
 	c := dagnode.Cid()
 	s, err := dagnode.Size()
 	if err != nil {
 		return nil, err
 	}
 
-	output := &Object{
-		Hash:  c.String(),
-		Size:  strconv.FormatUint(s, 10),
-		Links: make([]Link, len(dagnode.Links())),
-	}
-
-	for i, link := range dagnode.Links() {
-		output.Links[i] = Link{
-			Name: link.Name,
-			Size: link.Size,
-		}
+	output := &coreiface.AddEvent{
+		Path: coreiface.IpfsPath(c),
+		Size: strconv.FormatUint(s, 10),
 	}
 
 	return output, nil
