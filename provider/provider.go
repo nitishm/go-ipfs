@@ -2,9 +2,11 @@ package provider
 
 import (
 	"context"
+	"fmt"
 	"gx/ipfs/QmR8BauakNcBa3RbE4nbQu76PDiJgoQgz8AJdhJuiU4TAw/go-cid"
 	"gx/ipfs/QmZBH87CAPFHcc7cYmBqeSQ98zQ3SX9KUxiYgzPmLWNVKz/go-libp2p-routing"
 	logging "gx/ipfs/QmcuXC5cxs79ro2cUuHs4HQ2bkDLJUYokwL8aivcX6HW3C/go-log"
+	"sync"
 	"time"
 )
 
@@ -13,8 +15,8 @@ var (
 )
 
 const (
-	provideOutgoingLimit 	= 512
-	provideOutgoingTimeout  = time.Second * 15
+	provideOutgoingWorkerLimit = 512
+	provideOutgoingTimeout     = time.Second * 15
 )
 
 type AnchorStrategy func(context.Context, chan cid.Cid, cid.Cid)
@@ -33,6 +35,8 @@ type Provider struct {
 
 	// strategy for deciding which cids are eligible to be provided
 	eligible EligibleStrategy
+	queue *Queue
+	queueLock sync.Mutex
 
 	contentRouting routing.ContentRouting // TODO: temp, maybe
 }
@@ -44,6 +48,8 @@ func NewProvider(ctx context.Context, anchors AnchorStrategy, eligible EligibleS
 		incoming: make(chan cid.Cid),
 		anchors: anchors,
 		eligible: eligible,
+		queue: NewQueue(),
+		queueLock: sync.Mutex{},
 		contentRouting: contentRouting,
 	}
 }
@@ -52,6 +58,7 @@ func NewProvider(ctx context.Context, anchors AnchorStrategy, eligible EligibleS
 func (p *Provider) Run() {
 	go p.handleIncoming()
 	go p.handleOutgoing()
+	go p.handlePopulateOutgoing()
 }
 
 // Provider the given cid using specified strategy.
@@ -73,6 +80,7 @@ func (p *Provider) Announce(cid cid.Cid) {
 	if err := p.contentRouting.Provide(ctx, cid, true); err != nil {
 		log.Warning("Failed to provide key: %s", err)
 	}
+	fmt.Println("Announced", cid)
 }
 
 // Workers
@@ -83,31 +91,13 @@ func (p *Provider) Announce(cid cid.Cid) {
 // Then, whenever the outgoing channel is ready to receive a value, pull
 // a value out of the buffer and put it onto the outgoing channel.
 func (p *Provider) handleIncoming() {
-	var buffer []cid.Cid // unbounded buffer between incoming/outgoing
-	var nextKey cid.Cid
-	var keys chan cid.Cid
-
 	for {
 		select {
-		case key, ok := <-p.incoming:
-			if !ok {
-				log.Debug("incoming channel closed")
-				return
-			}
-
-			if keys == nil {
-				nextKey = key
-				keys = p.outgoing
-			} else {
-				buffer = append(buffer, key)
-			}
-		case keys <- nextKey:
-			if len(buffer) > 0 {
-				nextKey = buffer[0]
-				buffer = buffer[1:]
-			} else {
-				keys = nil
-			}
+		case key := <-p.incoming:
+			fmt.Println("Moving from incoming channel to providing queue", key)
+			p.queueLock.Lock()
+			p.queue.Enqueue(key)
+			p.queueLock.Unlock()
 		case <-p.ctx.Done():
 			return
 		}
@@ -116,36 +106,40 @@ func (p *Provider) handleIncoming() {
 
 // Handle all outgoing cids by providing them
 func (p *Provider) handleOutgoing() {
-	limit := make(chan struct{}, provideOutgoingLimit)
-	limitedProvide := func(cid cid.Cid, workerId int) {
-		defer func() {
-			<-limit
+	for workers := 0; workers < provideOutgoingWorkerLimit; workers++ {
+      go func() {
+			for {
+				select {
+				case key := <-p.outgoing:
+					fmt.Println("Announcing", key)
+					p.Announce(key)
+				case <-p.ctx.Done():
+					return
+				}
+			}
 		}()
-
-		ev := logging.LoggableMap{"ID": workerId}
-		// TODO: EventBegin deprecated?
-		defer log.EventBegin(p.ctx, "Ipfs.Provider.Worker.Work", ev, cid)
-
-		p.Announce(cid)
 	}
+}
 
-	for workerId := 0; ; workerId++ {
-		ev := logging.LoggableMap{"ID": workerId}
-		log.Event(p.ctx, "Ipfs.Provider.Worker.Loop", ev)
+// Move CIDs from the disk-based queue to outgoing
+func (p *Provider) handlePopulateOutgoing() {
+	for {
 		select {
-		case key, ok := <-p.outgoing:
-			if !ok {
-				log.Debug("outgoing channel closed")
-				return
-			}
-			select {
-			case limit <- struct{}{}:
-				go limitedProvide(key, workerId)
-			case <-p.ctx.Done():
-				return
-			}
-		case <-p.ctx.Done():
+        case <-p.ctx.Done():
 			return
+        default:
 		}
+
+		p.queueLock.Lock()
+		if p.queue.IsEmpty() {
+			p.queueLock.Unlock()
+			// this is probably dumb and a crutch
+			time.Sleep(1 * time.Second)
+			continue
+		}
+		key := p.queue.Dequeue()
+		p.queueLock.Unlock()
+		fmt.Println("Moving from providing queue to outgoing channel", key)
+		p.outgoing <- key
 	}
 }
