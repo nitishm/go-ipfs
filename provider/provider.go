@@ -15,8 +15,8 @@ var (
 )
 
 const (
-	provideOutgoingWorkerLimit = 1
-	provideOutgoingTimeout     = time.Second * 15
+	provideOutgoingWorkerLimit = 8
+	provideOutgoingTimeout     = 15 * time.Second
 )
 
 type AnchorStrategy func(context.Context, chan cid.Cid, cid.Cid)
@@ -24,6 +24,7 @@ type EligibleStrategy func(cid.Cid) bool
 
 type Provider struct {
 	ctx context.Context
+	lock sync.Mutex
 
 	// cids we want to provide
 	incoming chan cid.Cid
@@ -34,22 +35,21 @@ type Provider struct {
 	anchors AnchorStrategy
 
 	// strategy for deciding which cids are eligible to be provided
-	eligible EligibleStrategy
-	queue *Queue
-	queueLock sync.Mutex
+	eligible     EligibleStrategy
+	queue        *Queue
 
 	contentRouting routing.ContentRouting // TODO: temp, maybe
 }
 
-func NewProvider(ctx context.Context, anchors AnchorStrategy, eligible EligibleStrategy, contentRouting routing.ContentRouting) *Provider {
+func NewProvider(ctx context.Context, anchors AnchorStrategy, eligible EligibleStrategy, queue *Queue, contentRouting routing.ContentRouting) *Provider {
 	return &Provider{
-		ctx: ctx,
-		outgoing: make(chan cid.Cid),
-		incoming: make(chan cid.Cid),
-		anchors: anchors,
-		eligible: eligible,
-		queue: NewQueue(),
-		queueLock: sync.Mutex{},
+		ctx:            ctx,
+		lock: 			sync.Mutex{},
+		outgoing:       make(chan cid.Cid),
+		incoming:       make(chan cid.Cid),
+		anchors:        anchors,
+		eligible:       eligible,
+		queue:          queue,
 		contentRouting: contentRouting,
 	}
 }
@@ -90,9 +90,9 @@ func (p *Provider) handleIncoming() {
 		select {
 		case key := <-p.incoming:
 			fmt.Println("Moving from incoming channel to providing queue", key)
-			p.queueLock.Lock()
+			p.lock.Lock()
 			p.queue.Enqueue(key)
-			p.queueLock.Unlock()
+			p.lock.Unlock()
 		case <-p.ctx.Done():
 			return
 		}
@@ -102,7 +102,7 @@ func (p *Provider) handleIncoming() {
 // Handle all outgoing cids by providing them
 func (p *Provider) handleOutgoing() {
 	for workers := 0; workers < provideOutgoingWorkerLimit; workers++ {
-      go func() {
+		go func() {
 			for {
 				select {
 				case key := <-p.outgoing:
@@ -120,21 +120,26 @@ func (p *Provider) handleOutgoing() {
 func (p *Provider) handlePopulateOutgoing() {
 	for {
 		select {
-        case <-p.ctx.Done():
+		case <-p.ctx.Done():
 			return
-        default:
+		default:
 		}
 
-		p.queueLock.Lock()
+		p.lock.Lock()
 		if p.queue.IsEmpty() {
-			p.queueLock.Unlock()
+			p.lock.Unlock()
 			// this is probably dumb and a crutch
 			time.Sleep(1 * time.Second)
 			continue
 		}
-		key := p.queue.Dequeue()
-		p.queueLock.Unlock()
+		key, err := p.queue.Dequeue()
+		p.lock.Unlock()
+		if err != nil {
+			// TODO something useful, like log
+			fmt.Println("Error!", err)
+			continue
+		}
 		fmt.Println("Moving from providing queue to outgoing channel", key)
-		p.outgoing <- key
+		p.outgoing <- *key
 	}
 }
