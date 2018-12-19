@@ -7,8 +7,6 @@ import (
 	"gx/ipfs/QmdURv6Sbob8TVW2tFFve9vcEWrSUgwPqeqnXyvYhLrkyd/go-merkledag"
 )
 
-// anchor picker strategies
-
 func NewAnchorAllStrategy(dag ipld.DAGService) Strategy {
 	return func(ctx context.Context, cids chan cid.Cid, root cid.Cid) {
 		cids <- root
