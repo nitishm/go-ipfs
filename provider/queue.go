@@ -93,7 +93,7 @@ func (q *Queue) prepare() error {
 		return err
 	}
 
-	// this is maybe dumb, maybe the entry id can be prepended to the bytes that make up the CID so that
+	// TODO: this is maybe dumb, maybe the entry id can be prepended to the bytes that make up the CID so that
 	// we can pull the entry id out without having to parse the whole cid or some other Entry-like struct?
 	for entry := range results.Next() {
 		keyId := strings.TrimPrefix(entry.Key, providingQueuePrefix)
