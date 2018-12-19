@@ -323,9 +323,9 @@ func (n *IpfsNode) startLateOnlineServices(ctx context.Context) error {
 
 	// TODO: Make strategy configurable
 	strategy := provider.NewAnchorAllStrategy(n.DAG)
-	eligible := provider.NewEligibleOnlyOnceStrategy()
+    tracker := provider.NewTracker(n.Repo.Datastore())
 	queue := provider.NewQueue(n.Repo.Datastore())
-	n.Provider = provider.NewProvider(ctx, strategy, eligible, queue, n.Routing)
+	n.Provider = provider.NewProvider(ctx, strategy, tracker, queue, n.Routing)
 	go n.Provider.Run()
 
 	// Reprovider

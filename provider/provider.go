@@ -34,21 +34,20 @@ type Provider struct {
 	// strategy for deciding which cids, given a cid, should be provided, the so-called "anchors"
 	anchors AnchorStrategy
 
-	// strategy for deciding which cids are eligible to be provided
-	eligible     EligibleStrategy
+	tracker *Tracker
 	queue        *Queue
 
 	contentRouting routing.ContentRouting // TODO: temp, maybe
 }
 
-func NewProvider(ctx context.Context, anchors AnchorStrategy, eligible EligibleStrategy, queue *Queue, contentRouting routing.ContentRouting) *Provider {
+func NewProvider(ctx context.Context, anchors AnchorStrategy, tracker *Tracker, queue *Queue, contentRouting routing.ContentRouting) *Provider {
 	return &Provider{
 		ctx:            ctx,
 		lock: 			sync.Mutex{},
 		outgoing:       make(chan cid.Cid),
 		incoming:       make(chan cid.Cid),
 		anchors:        anchors,
-		eligible:       eligible,
+		tracker:		tracker,
 		queue:          queue,
 		contentRouting: contentRouting,
 	}
@@ -62,12 +61,17 @@ func (p *Provider) Run() {
 }
 
 // Provider the given cid using specified strategy.
-func (p *Provider) Provide(root cid.Cid) {
-	if !p.eligible(root) {
-		return
+func (p *Provider) Provide(root cid.Cid) error {
+	isTracking, err := p.tracker.IsTracking(root)
+	if err != nil {
+		return err
+	}
+	if isTracking {
+		return nil
 	}
 
 	p.anchors(p.ctx, p.incoming, root)
+	return nil
 }
 
 // Announce to the world that a block is provided.
@@ -81,6 +85,8 @@ func (p *Provider) Announce(cid cid.Cid) {
 		log.Warning("Failed to provide key: %s", err)
 	}
 	fmt.Println("Announced", cid)
+	p.tracker.Track(cid)
+	fmt.Println("Tracking", cid)
 }
 
 // Workers
@@ -128,7 +134,7 @@ func (p *Provider) handlePopulateOutgoing() {
 		p.lock.Lock()
 		if p.queue.IsEmpty() {
 			p.lock.Unlock()
-			// this is probably dumb and a crutch
+			// this is maybe dumb and a crutch
 			time.Sleep(1 * time.Second)
 			continue
 		}
