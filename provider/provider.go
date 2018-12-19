@@ -19,35 +19,34 @@ const (
 	provideOutgoingTimeout     = 15 * time.Second
 )
 
-type AnchorStrategy func(context.Context, chan cid.Cid, cid.Cid)
-type EligibleStrategy func(cid.Cid) bool
+type Strategy func(context.Context, chan cid.Cid, cid.Cid)
 
 type Provider struct {
 	ctx context.Context
 	lock sync.Mutex
 
-	// cids we want to provide
+	// CIDs to provide
 	incoming chan cid.Cid
-	// cids we are working on providing now
+	// CIDs we are working on providing now
 	outgoing chan cid.Cid
-
-	// strategy for deciding which cids, given a cid, should be provided, the so-called "anchors"
-	anchors AnchorStrategy
-
+	// strategy for deciding which CIDs, given a CID, should be provided
+	strategy Strategy
+	// keeps track of which CIDs have been provided already
 	tracker *Tracker
-	queue        *Queue
+    // the CIDs for which provide announcements should be made
+	queue *Queue
 
 	contentRouting routing.ContentRouting // TODO: temp, maybe
 }
 
-func NewProvider(ctx context.Context, anchors AnchorStrategy, tracker *Tracker, queue *Queue, contentRouting routing.ContentRouting) *Provider {
+func NewProvider(ctx context.Context, strategy Strategy, tracker *Tracker, queue *Queue, contentRouting routing.ContentRouting) *Provider {
 	return &Provider{
 		ctx:            ctx,
-		lock: 			sync.Mutex{},
+		lock:           sync.Mutex{},
 		outgoing:       make(chan cid.Cid),
 		incoming:       make(chan cid.Cid),
-		anchors:        anchors,
-		tracker:		tracker,
+		strategy:       strategy,
+		tracker:        tracker,
 		queue:          queue,
 		contentRouting: contentRouting,
 	}
@@ -70,7 +69,7 @@ func (p *Provider) Provide(root cid.Cid) error {
 		return nil
 	}
 
-	p.anchors(p.ctx, p.incoming, root)
+	p.strategy(p.ctx, p.incoming, root)
 	return nil
 }
 

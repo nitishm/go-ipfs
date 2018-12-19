@@ -9,7 +9,7 @@ import (
 
 // anchor picker strategies
 
-func NewAnchorAllStrategy(dag ipld.DAGService) AnchorStrategy {
+func NewAnchorAllStrategy(dag ipld.DAGService) Strategy {
 	return func(ctx context.Context, cids chan cid.Cid, root cid.Cid) {
 		cids <- root
 		// TODO: Use schomatis' dag walker instead of this enumerate?
@@ -17,18 +17,5 @@ func NewAnchorAllStrategy(dag ipld.DAGService) AnchorStrategy {
 			cids <- cid
 			return true
 		})
-	}
-}
-
-// eligibility strategies
-
-func NewEligibleOnlyOnceStrategy() EligibleStrategy {
-	provided := cid.NewSet()
-	return func(root cid.Cid) bool {
-		eligible := !provided.Has(root)
-		if eligible {
-			provided.Add(root)
-		}
-		return eligible
 	}
 }
